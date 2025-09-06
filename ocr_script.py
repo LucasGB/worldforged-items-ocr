@@ -9,37 +9,45 @@ from pathlib import Path
 from paddleocr import PaddleOCR
 from difflib import SequenceMatcher
 import yaml
+from item_stats import ItemStats
+from difflib import get_close_matches
+
+canonical_words = [
+    "Main-Hand",
+    "Off-Hand",
+    "One-Hand",
+    "Two-Hand",
+]
+
+def map_by_similarity(s: str, words=canonical_words, cutoff=0.7) -> str:
+    """
+    Map input string `s` to the closest word in `words` by similarity.
+    `cutoff` is the minimum similarity (0-1) to consider.
+    """
+    # normalize input
+    s_clean = s.replace("_", " ").replace("-", " ").title()
+    
+    matches = get_close_matches(s_clean, words, n=1, cutoff=cutoff)
+    if matches:
+        return matches[0]
+    else:
+        return s_clean  # fallback: return original cleaned string
+
+def to_camel_case(s: str) -> str:
+    words = re.split(r'\s+', s)
+    return words[0].lower() + ''.join(w.capitalize() for w in words[1:])
+
+def fix_glued_number(s: str) -> str:
+    # insert a space between a letter and a number
+    s = re.sub(r'([a-zA-Z])(\d)', r'\1 \2', s)
+    # insert a space between a number and a letter (optional)
+    s = re.sub(r'(\d)([a-zA-Z])', r'\1 \2', s)
+    return s
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-@dataclass
-class ItemStats:
-    """Structured representation of item statistics"""
-    name: str = ""
-    item_type: str = ""
-    subtype: str = ""
-    damage_range: Optional[Tuple[int, int]] = None
-    dps: Optional[float] = None
-    speed: Optional[float] = None
-    level_requirement: Optional[int] = None
-    item_level: Optional[int] = None
-    primary_stats: Dict[str, int] = None
-    secondary_stats: Dict[str, int] = None
-    effects: List[str] = None
-    binding: str = ""
-    rarity: str = ""
-    weapon_type: str = ""
-    slot: str = ""
-    
-    def __post_init__(self):
-        if self.primary_stats is None:
-            self.primary_stats = {}
-        if self.secondary_stats is None:
-            self.secondary_stats = {}
-        if self.effects is None:
-            self.effects = []
 
 class GameItemOCRProcessor:
     """Production-grade OCR processor for game items"""
@@ -105,41 +113,40 @@ class GameItemOCRProcessor:
     def _compile_patterns(self):
         """Compile regex patterns for efficient text parsing"""
         self.patterns = {
+            'id': re.compile(r'\b[Ii][Dd]\s*(\d{3,})(?![:\w])\b'),
             # Damage patterns
             'damage_range': re.compile(r'(\d+)\s*[-–—]\s*(\d+)\s+[Dd]amage'),
             'single_damage': re.compile(r'(\d+)\s+[Dd]amage'),
-            'dps': re.compile(r'\(?([\d.]+)\s+damage\s+per\s+second\)?', re.IGNORECASE),
+            'dps': re.compile(r'\(?([\d.]+)\s*damage\s*per\s*second\)?', re.IGNORECASE),
             
             # Speed and timing
             'speed': re.compile(r'[Ss]peed\s+([\d.]+)'),
             'cooldown': re.compile(r'(\d+)\s+sec\s+cooldown', re.IGNORECASE),
             
             # Level requirements
-            'level_req': re.compile(r'[Rr]equires\s+[Ll]evel\s+(\d+)'),
+            'level_req': re.compile(r'[Rr]equires\s*[Ll]evel\s*(\d+)'),
             'item_level': re.compile(r'[Ii]tem\s+[Ll]evel\s+(\d+)'),
             
             # Primary stats (Strength, Agility, etc.)
-            'primary_stats': re.compile(r'[+]?(\d+)\s+(Strength|Agility|Intellect|Stamina|Spirit)', re.IGNORECASE),
+            'base_stats': re.compile(r'[+]?(\d+)\s*([Ss]trength|[Aa]gility|[Ii]ntellect|[Ss]tamina|[Ss]pirit|[Aa]rmor|[Bb]lock)', re.IGNORECASE),
             
             # Secondary stats (ratings, resistances)
-            'secondary_stats': re.compile(r'[+]?(\d+)\s+(Critical Strike|Haste|Mastery|Versatility|dodge|parry|block|hit|expertise)', re.IGNORECASE),
+            'equip_stats': re.compile(r'^(?:Equip:|Chance on hit:|Chance on cast:)?\s*(?:Increases|Improves)\s+(.*?)\s+by', re.IGNORECASE),
             'rating_stats': re.compile(r'(\d+)\s+(\w+)\s+rating', re.IGNORECASE),
             
             # Item types and slots
-            'weapon_types': re.compile(r'\b(Sword|Axe|Mace|Dagger|Staff|Bow|Gun|Crossbow|Wand|Fist Weapon|Polearm|Thrown)\b', re.IGNORECASE),
-            'armor_types': re.compile(r'\b(Cloth|Leather|Mail|Plate)\b'),
-            'slot': re.compile(r'\b(Main\s*[Hh]and|Off\s*[Hh]and|Two-Hand|Head|Neck|Shoulder|Back|Chest|Wrist|Hands|Waist|Legs|Feet|Finger|Trinket|Relic)\b', re.IGNORECASE),
-            'slot_types': re.compile(r'\b(Cloth|Leather|Mail|Plate|Sword|Axe|Mace|Dagger|Staff|Bow|Gun|Crossbow|Wand|Fist Weapon|Polearm|Thrown)\b', re.IGNORECASE),
+            'slot': re.compile(r'\b(Main\s*[Hh]and|Off\s*[Hh]and|Two-Hand|Head|Neck|Shoulder|Back|Chest|Wrist|Hands|Waist|Legs|Feet|Finger|Trinket|Ranged)\b', re.IGNORECASE),
+            'slot_types': re.compile(r'\b([Cc]loth|[Ll]eather|[Mm]ail|[Pp]late|[Ss]word|[Aa]xe|[Mm]ace|[Dd]agger|[Ss]taff|[Bb]ow|[Gg]un|[Cc]rossbow|[Ww]and|[Ff]ist Weapon|[Pp]olearm|[Tt]hrown)|[Ss]hield\b', re.IGNORECASE),
 
             # Binding and rarity
             'binding': re.compile(r'\b(Binds when picked up|Binds when equipped|Binds to account|Soulbound|Account Bound)\b', re.IGNORECASE),
             'rarity': re.compile(r'\b(Poor|Common|Uncommon|Rare|Epic|Legendary|Artifact|Heirloom)\b', re.IGNORECASE),
             
             # Effects (Equip, Use, Chance on hit, etc.)
-            'equip_effect': re.compile(r'^[Ee]quip:\s*(.+)$'),
+            'equip_effect': re.compile(r'^(?:Equip:|Chance on hit:|Chance on cast:)?\s*(?:Increases|Improves)\s+(.*?)\s+by'),
             'use_effect': re.compile(r'^[Uu]se:\s*(.+)$'),
             'chance_effect': re.compile(r'[Cc]hance\s+(?:on\s+hit|to|when)\s+(.+)', re.IGNORECASE),
-            
+
             # Common OCR errors
             'number_fixes': [
                 (r'\b1([1l])[o0]\b', r'110'),  # 11o -> 110, 1l0 -> 110
@@ -159,7 +166,7 @@ class GameItemOCRProcessor:
                 'critical', 'strike', 'haste', 'mastery', 'versatility',
                 'dodge', 'parry', 'block', 'hit', 'expertise', 'resilience'
             },
-            'weapon_types': {
+            'slot_types': {
                 'sword', 'axe', 'mace', 'dagger', 'staff', 'bow', 'gun',
                 'crossbow', 'wand', 'fist', 'weapon', 'polearm', 'thrown'
             },
@@ -310,7 +317,7 @@ class GameItemOCRProcessor:
             if use_preprocessing:
                 # Save preprocessed image temporarily
                 processed_img = self.preprocess_image(image_path)
-                prefix = "white_bkground" if self.config['preprocessing'].get('invert_colors', False) else "black_bkground"
+                prefix = "black_bkground" if self.config['preprocessing'].get('invert_colors', False) else "white_bkground"
                 temp_path = f"{prefix}_temp_processed_{Path(image_path).name}"
                 cv2.imwrite(temp_path, processed_img)
                 result = self.ocr.predict(temp_path)
@@ -365,66 +372,79 @@ class GameItemOCRProcessor:
                 logger.debug(f"Skipping low confidence text: {text} ({confidence:.3f})")
                 continue
             
+            # ID parsing
+            id_match = self.patterns['id'].search(text)
+            if id_match:
+                item.id = int(id_match.group(1))
+                continue
+
             # Damage parsing
             damage_match = self.patterns['damage_range'].search(text)
             if damage_match:
                 item.damage_range = (int(damage_match.group(1)), int(damage_match.group(2)))
-            
+                continue
+
             # DPS parsing
             dps_match = self.patterns['dps'].search(text)
             if dps_match:
                 item.dps = float(dps_match.group(1))
+                continue
             
             # Speed parsing
             speed_match = self.patterns['speed'].search(text)
             if speed_match:
                 item.speed = float(speed_match.group(1))
+                continue
             
             # Level requirements
             level_req_match = self.patterns['level_req'].search(text)
             if level_req_match:
-                item.level_requirement = int(level_req_match.group(1))
+                item.required_level = int(level_req_match.group(1))
+                continue
             
+            # Item Level
             item_level_match = self.patterns['item_level'].search(text)
             if item_level_match:
                 item.item_level = int(item_level_match.group(1))
+                continue
             
             # Primary stats
-            for match in self.patterns['primary_stats'].finditer(text):
-                value, stat = match.groups()
-                item.primary_stats[stat.lower()] = int(value)
+            for base_stats_match in self.patterns['base_stats'].finditer(text):
+                value, stat = base_stats_match.groups()
+                item.base_stats[stat.lower()] = int(value)
             
-            # Secondary stats
-            for match in self.patterns['secondary_stats'].finditer(text):
-                value, stat = match.groups()
-                item.secondary_stats[stat.lower()] = int(value)
+            # Equip stats
+            for equip_stats_match in self.patterns['equip_stats'].finditer(text):
+                equip_effect_string = equip_stats_match.group(1)
+                key = to_camel_case(equip_effect_string)
+                item.equip_stats[key] = fix_glued_number(equip_stats_match.string.replace("Equip:", "").strip())
             
-            # Rating stats
-            for match in self.patterns['rating_stats'].finditer(text):
-                value, stat = match.groups()
-                item.secondary_stats[f"{stat.lower()}_rating"] = int(value)
-            
+            # Slot
             slot_match = self.patterns['slot'].search(text)
             if slot_match:
-                item.slot = slot_match.group(1)
+                item.slot = map_by_similarity(slot_match.group(1))
+                continue
+
             
+            # Slot Types
+            slot_match = self.patterns['slot_types'].search(text)
+            if slot_match:
+                item.slot_type = slot_match.group(0)
+                continue
+
             # Binding
             binding_match = self.patterns['binding'].search(text)
             if binding_match:
-                item.binding = binding_match.group(1)
-            
-            # Effects
-            equip_match = self.patterns['equip_effect'].search(text)
-            if equip_match:
-                item.effects.append(f"Equip: {equip_match.group(1)}")
+                item.binding = binding_match.group(1) if binding_match.group(1) != "Soulbound" else "Binds when picked up"
+                continue
             
             use_match = self.patterns['use_effect'].search(text)
             if use_match:
-                item.effects.append(f"Use: {use_match.group(1)}")
+                item.equip_stats.append(f"Use: {use_match.group(1)}")
             
             chance_match = self.patterns['chance_effect'].search(text)
             if chance_match:
-                item.effects.append(f"Chance: {chance_match.group(1)}")
+                item.equip_stats.append(f"Chance: {chance_match.group(1)}")
         
         return item
     
@@ -456,7 +476,7 @@ class GameItemOCRProcessor:
         if save_debug:
             debug_path = f"debug_{Path(image_path).stem}.json"
             with open(debug_path, 'w') as f:
-                json.dump(result, f, indent=2)
+                json.dump(ItemStats.to_dynamodb_item(result["item_stats"]), f, indent=2)
             logger.info(f"Debug info saved to {debug_path}")
         
         return result
@@ -470,7 +490,7 @@ class GameItemOCRProcessor:
         
         for i, image_path in enumerate(image_paths):
             try:
-                result = self.process_item_image(image_path)
+                result = self.process_item_image(image_path, True)
                 results.append(result)
                 
                 if (i + 1) % 100 == 0:
@@ -496,12 +516,6 @@ class GameItemOCRProcessor:
 if __name__ == "__main__":
     # Initialize processor
     processor = GameItemOCRProcessor()
-    
-    # Process single image
-    # result = processor.process_item_image("image.png", save_debug=True)
-    # print("Item Name:", result["item_stats"]["name"])
-    # print("Damage Range:", result["item_stats"]["damage_range"])
-    # print("Primary Stats:", result["item_stats"]["primary_stats"])
     
     # For batch processing (example)
     image_files = list(Path("images/").glob("*.png"))
