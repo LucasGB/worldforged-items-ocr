@@ -18,6 +18,16 @@ canonical_words = [
     "Off-Hand",
     "One-Hand",
     "Two-Hand",
+    "Wand",
+    "Bow",
+    "Crossbow",
+    "Thrown",
+    "Gun",
+]
+
+item_slots = [
+    "Head", "Neck", "Shoulder", "Back", "Chest", "Wrist", "Hands", "Waist", "Legs", "Feet",
+    "Finger", "Trinket", "Ranged", "Main-Hand", "Off-Hand", "One-Hand", "Two-Hand"
 ]
 
 def map_by_similarity(s: str, words=canonical_words, cutoff=0.7) -> str:
@@ -144,7 +154,7 @@ class GameItemOCRProcessor:
             
             # Effects (Equip, Use, Chance on hit, etc.)
             'use_effect': re.compile(r'^[Uu]se:\s*(.+)$'),
-            'chance_effect': re.compile(r'[Cc]hance\s+(?:on\s+hit|to|when)\s+(.+)', re.IGNORECASE),
+            'chance_effect': re.compile(r'(?:[Cc]hance\s*on\s*hit|[Cc]hance\s*on\s*[spell\s*]*cast)\s*:?(.+)', re.IGNORECASE),
 
             # Common OCR errors
             'number_fixes': [
@@ -203,7 +213,7 @@ class GameItemOCRProcessor:
             return float(number_matches[0])  # assume the first number is DPS
         return None
 
-    def extract_binding(self, text, threshold=80):
+    def extract_binding(self, text, threshold=81):
         """
         Returns the best-matching binding phrase from OCR text.
         """
@@ -214,11 +224,38 @@ class GameItemOCRProcessor:
         ]
                 
         text_lower = text.lower()
+
+        keyword_score = fuzz.partial_ratio(text_lower, "soulbound")
+        if keyword_score > threshold:
+            return "Binds when picked up"
+
+        # ✅ Step 1: fuzzy keyword check ("binds" could be "pinds" or "bincs")
+        keyword_score = fuzz.partial_ratio(text_lower, "binds")
+        if keyword_score < threshold:
+            return None
+        
+        
         # Use RapidFuzz to find the closest match among BINDINGS
         result = process.extractOne(text_lower, BINDINGS, score_cutoff=threshold)
         if result is None:
             return None
         match, score, _ = result  # safe unpack now
+        return match
+
+    def extract_chance_effects(self, text, threshold=81):
+        """
+        Returns the best-matching on-chance effects from OCR text.
+        """
+        CHANCE_EFFECTS = ["chance on hit", "chance on cast", "chance on spell cast"]
+                
+        text_lower = text.lower()[:20]  # Only first 20 chars to extract the effect prefix and reduce fuzzy computation
+
+        # Find the closest match among CHANCE_EFFECTS
+        result = process.extractOne(text_lower, CHANCE_EFFECTS, score_cutoff=threshold)
+        if result is None:
+            return None
+        
+        match, score, _ = result
         return match
 
     def extract_item_id(self, text, min_length=6, threshold=80):
@@ -509,26 +546,35 @@ class GameItemOCRProcessor:
                 item.slot = map_by_similarity(slot_match.group(1))
                 continue
 
-            
             # Slot Types
-            slot_match = self.patterns['slot_types'].search(text)
-            if slot_match:
-                item.slot_type = slot_match.group(0)
+            slot_types_match = self.patterns['slot_types'].search(text)
+            if slot_types_match:
+                item.slot_type = slot_types_match.group(0)
+
+                # Ascension renders 'Thrown' as slot when slotype is 'Thrown'. Here we map it back to 'Ranged'.
+                ranged_weapons = [
+                    "Thrown", 'Wand' 'Ranged' 'Gun', 'Bow', 'Crossbow'
+                ]
+
+                if item.slot_type in ranged_weapons:
+                    item.slot = "Ranged"
                 continue
 
             # Binding
             binding_match = self.extract_binding(text)
             if binding_match:
-                item.binding = "Binds when picked up" if binding_match == "Soulbound" else binding_match
+                item.binding = binding_match
                 continue
             
             use_match = self.patterns['use_effect'].search(text)
             if use_match:
-                item.equip_stats.append(f"Use: {use_match.group(1)}")
+                item.equip_stats["onUse"] = f"Use: {use_match.group(1)}"
             
             chance_match = self.patterns['chance_effect'].search(text)
             if chance_match:
-                item.equip_stats.append(f"Chance: {chance_match.group(1)}")
+                key = self.extract_chance_effects(chance_match.group(0))
+                key = to_camel_case(key) if key else "onChance"
+                item.equip_stats[key] = chance_match.group(0)
         
         return item
     
@@ -556,6 +602,9 @@ class GameItemOCRProcessor:
                 "preprocessed": True
             }
         }
+
+        # Store result in S3
+
         
         if save_debug:
             prefix = "black_bkground" if self.config['preprocessing'].get('invert_colors', False) else "white_bkground"
@@ -564,6 +613,7 @@ class GameItemOCRProcessor:
                 json.dump(ItemStats.to_dynamodb_item(result["item_stats"]), f, indent=2)
             logger.info(f"Debug info saved to {debug_path}")
         
+        # Return item_stats
         return result
     
     def batch_process(self, image_paths: List[str], output_path: str = "processed_items.json") -> List[Dict[str, Any]]:
