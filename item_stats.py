@@ -2,13 +2,46 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Tuple, Any
 from datetime import datetime
 from boto3.dynamodb.types import TypeSerializer
+import re
+from decimal import Decimal
+
+def to_dynamodb_compatible(obj):
+    """Recursively converts floats to Decimal for DynamoDB storage."""
+    if isinstance(obj, dict):
+        return {k: to_dynamodb_compatible(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [to_dynamodb_compatible(v) for v in obj]
+    elif isinstance(obj, float):
+        return Decimal(str(obj))  # Use string to avoid binary float issues
+    else:
+        return obj
+    
+def to_camel_case(snake_str: str) -> str:
+    return re.sub(r'_([a-zA-Z])', lambda m: m.group(1).upper(), snake_str)
+
+def keys_to_camel(obj):
+    if isinstance(obj, dict):
+        new_obj = {}
+        for k, v in obj.items():
+            camel_key = to_camel_case(k)
+            if isinstance(v, dict):
+                new_obj[camel_key] = keys_to_camel(v)
+            elif isinstance(v, list):
+                new_obj[camel_key] = [keys_to_camel(i) if isinstance(i, dict) else i for i in v]
+            else:
+                new_obj[camel_key] = v
+        return new_obj
+    elif isinstance(obj, list):
+        return [keys_to_camel(i) if isinstance(i, dict) else i for i in obj]
+    else:
+        return obj
 
 @dataclass
 class DamageInfo:
-    minimum_damage: Optional[int] = None
-    maximum_damage: Optional[int] = None
-    damage_per_second: Optional[float] = None
-    speed: Optional[float] = None
+    min: Optional[int] = None
+    max: Optional[int] = None
+    damagePerSecond: Optional[float] = None
+    speed: Optional[Decimal] = None
 
 @dataclass
 class ItemStats:
@@ -40,7 +73,7 @@ class ItemStats:
     
     # Location and source
     coords: Optional[List[float]] = None  # [x, y] coordinates
-    source_type: Optional[str] = None  # WorldSpawn, etc.
+    source: Optional[Dict[str, str]] = None  # WorldSpawn, etc.
     zone: Optional[str] = None  # Can be extracted from partition key
     
     # Recipe/crafting specific
@@ -165,8 +198,17 @@ class ItemStats:
 
     def to_dynamodb_item(item: 'ItemStats'):
         serializer = TypeSerializer()
+        item['pk'] = "ZONE#RedridgeMountains"  # Placeholder, should be set appropriately
+        item['sk'] = f"EQUIPMENT#{item['id']}" if item['id'] else "ITEM#UNKNOWN"
+        item['created_at'] = datetime.utcnow().isoformat()
+        item['updated_at'] = item['created_at']
+        item['quality'] = "Rare"
+        item["source"] = {"type": "WorldSpawn"}
+        # item["slotType"] = None if item["slotType"] is None else item["slotType"]
+        item = to_dynamodb_compatible(item)
+
         dynamo_json = {k: serializer.serialize(v) for k, v in item.items() if v is not None}
-        return dynamo_json
+        return keys_to_camel(dynamo_json)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation"""

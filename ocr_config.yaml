@@ -1,0 +1,48 @@
+# OCR Configuration for Game Item Processing
+ocr_settings:
+  use_textline_orientation: true
+  lang: "en"
+  det_db_thresh: 0.3
+  det_db_box_thresh: 0.6
+  rec_batch_num: 6
+  # use_gpu: true  # Set to false if no GPU available
+
+preprocessing:
+  resize_factor: 2.0  # Upscale images for better text recognition
+  gaussian_blur_kernel: 0  # Noise reduction (0 to disable)
+  adaptive_threshold_block_size: 11  # Must be odd
+  adaptive_threshold_c: 2
+  invert_colors: false  # Invert colors for better contrast
+  enable_preprocessing: true
+
+text_correction:
+  confidence_threshold: 0.7  # Below this threshold, apply spell checking
+  enable_spell_check: true
+  enable_context_correction: true
+  min_word_length: 2  # Don't spell-check words shorter than this
+
+item_parsing:
+  min_name_length: 3
+  max_name_length: 50
+  stat_confidence_threshold: 0.6  # Minimum confidence to accept stat parsing
+  
+# Performance settings
+performance:
+  batch_size: 10  # Number of images to process before saving intermediate results
+  max_workers: 4  # For parallel processing
+  memory_limit_mb: 2048  # Memory limit per worker
+
+# Logging configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_file: "ocr_processing.log"
+  max_log_size_mb: 100
+  backup_count: 3
+
+# Output settings
+output:
+  save_debug_info: false
+  save_intermediate_results: true
+  output_format: "json"  # json, csv, both
+  include_confidence_scores: true
+  include_bounding_boxes: false

@@ -9,8 +9,9 @@ from pathlib import Path
 from paddleocr import PaddleOCR
 from difflib import SequenceMatcher
 import yaml
-from item_stats import ItemStats
+from item_stats import ItemStats, DamageInfo
 from difflib import get_close_matches
+from rapidfuzz import fuzz, process
 
 canonical_words = [
     "Main-Hand",
@@ -113,14 +114,14 @@ class GameItemOCRProcessor:
     def _compile_patterns(self):
         """Compile regex patterns for efficient text parsing"""
         self.patterns = {
-            'id': re.compile(r'\b[Ii][Dd]\s*(\d{3,})(?![:\w])\b'),
+            'id': re.compile(r'(?:\b[Ii][Dd]\s*)?(\d{6,})(?![:\w])\b'),
             # Damage patterns
-            'damage_range': re.compile(r'(\d+)\s*[-–—]\s*(\d+)\s+[Dd]amage'),
+            'damage_range': re.compile(r'\b([0-9OGBQDS]{1,3})\s*[-–—]?\s*([0-9OGBQDS]{1,3})\s*Damage\b', re.IGNORECASE),
             'single_damage': re.compile(r'(\d+)\s+[Dd]amage'),
             'dps': re.compile(r'\(?([\d.]+)\s*damage\s*per\s*second\)?', re.IGNORECASE),
             
             # Speed and timing
-            'speed': re.compile(r'[Ss]peed\s+([\d.]+)'),
+            'speed': re.compile(r'[Ss]peed\s*([\d.]+)'),
             'cooldown': re.compile(r'(\d+)\s+sec\s+cooldown', re.IGNORECASE),
             
             # Level requirements
@@ -131,8 +132,7 @@ class GameItemOCRProcessor:
             'base_stats': re.compile(r'[+]?(\d+)\s*([Ss]trength|[Aa]gility|[Ii]ntellect|[Ss]tamina|[Ss]pirit|[Aa]rmor|[Bb]lock)', re.IGNORECASE),
             
             # Secondary stats (ratings, resistances)
-            'equip_stats': re.compile(r'^(?:Equip:|Chance on hit:|Chance on cast:)?\s*(?:Increases|Improves)\s+(.*?)\s+by', re.IGNORECASE),
-            'rating_stats': re.compile(r'(\d+)\s+(\w+)\s+rating', re.IGNORECASE),
+            'equip_stats': re.compile(r'^(?:[Ee]quip(?:e)?|[Cc]hance on hit|[Cc]hance on cast)[:\s]+\s*(?:[Ii]ncreases?|[Ii]mproves?|[Rr]estores)\s+([a-zA-Z ]+?)(?=\s+by|\s+for|\s+up|\s+per|\.|$).*', re.IGNORECASE),
             
             # Item types and slots
             'slot': re.compile(r'\b(Main\s*[Hh]and|Off\s*[Hh]and|Two-Hand|Head|Neck|Shoulder|Back|Chest|Wrist|Hands|Waist|Legs|Feet|Finger|Trinket|Ranged)\b', re.IGNORECASE),
@@ -143,7 +143,6 @@ class GameItemOCRProcessor:
             'rarity': re.compile(r'\b(Poor|Common|Uncommon|Rare|Epic|Legendary|Artifact|Heirloom)\b', re.IGNORECASE),
             
             # Effects (Equip, Use, Chance on hit, etc.)
-            'equip_effect': re.compile(r'^(?:Equip:|Chance on hit:|Chance on cast:)?\s*(?:Increases|Improves)\s+(.*?)\s+by'),
             'use_effect': re.compile(r'^[Uu]se:\s*(.+)$'),
             'chance_effect': re.compile(r'[Cc]hance\s+(?:on\s+hit|to|when)\s+(.+)', re.IGNORECASE),
 
@@ -175,6 +174,77 @@ class GameItemOCRProcessor:
                 'chance', 'increases', 'decreases', 'rating', 'resistance'
             }
         }
+    
+    # FUZZY REGEX
+    def extract_dps(self, text):
+        """
+        Extract DPS from OCR text using fuzzy matching.
+        Returns a float if found, else None.
+        """
+        # Extract numbers
+        number_matches = re.findall(r'[\d.]+', text)
+        if not number_matches:
+            return None
+
+        # Lowercase text
+        lower_text = text.lower()
+
+        # Define keywords for DPS
+        keywords = ["damage", "per", "second"]
+
+        # Count how many keywords appear fuzzily in the text (not tokenized)
+        found = 0
+        for kw in keywords:
+            # Check fuzzy match anywhere in the text
+            if fuzz.partial_ratio(kw, lower_text) > 80:
+                found += 1
+
+        if found >= 2:  # require at least 2 keywords matched
+            return float(number_matches[0])  # assume the first number is DPS
+        return None
+
+    def extract_binding(self, text, threshold=80):
+        """
+        Returns the best-matching binding phrase from OCR text.
+        """
+        BINDINGS = [
+            "Binds when picked up",
+            "Binds on equip",
+            "Binds to realm",
+        ]
+                
+        text_lower = text.lower()
+        # Use RapidFuzz to find the closest match among BINDINGS
+        result = process.extractOne(text_lower, BINDINGS, score_cutoff=threshold)
+        if result is None:
+            return None
+        match, score, _ = result  # safe unpack now
+        return match
+
+    def extract_item_id(self, text, min_length=6, threshold=80):
+        """
+        Attempts to extract an item ID from OCR text using fuzzy matching.
+        Returns the numeric ID as int if found, else None.
+        """
+        # Candidate patterns that may indicate an ID
+        ID_KEYWORDS = ["id", "itemid", "temid"]
+        tokens = re.split(r'\s+', text.lower())
+
+        for i, token in enumerate(tokens):
+            # Check if token matches a keyword fuzzily
+            if any(fuzz.partial_ratio(token, kw) > threshold for kw in ID_KEYWORDS):
+                # Merge all following tokens to capture split numbers
+                candidate = "".join(tokens[i+1:])  # all tokens after keyword
+                digits = re.sub(r'\D', '', candidate)
+                if len(digits) >= min_length:
+                    return int(digits)
+
+        # Fallback: any number in text with min_length
+        digits_only = re.findall(r'\d{%d,}' % min_length, text)
+        if digits_only:
+            return int("".join(digits_only))
+
+        return None
     
     def preprocess_image(self, image_path: str) -> np.ndarray:
         """Apply preprocessing to improve OCR accuracy"""
@@ -373,27 +443,41 @@ class GameItemOCRProcessor:
                 continue
             
             # ID parsing
-            id_match = self.patterns['id'].search(text)
-            if id_match:
-                item.id = int(id_match.group(1))
+            item_id = self.extract_item_id(text)
+            if item_id is not None:
+                item.id = int(item_id)
                 continue
 
             # Damage parsing
+            fix_damage_range_ocr = str.maketrans({
+                'O': '0', 'D': '0', 'Q': '9',
+                'G': '6', 'B': '8', 'S': '5'
+            })
             damage_match = self.patterns['damage_range'].search(text)
             if damage_match:
-                item.damage_range = (int(damage_match.group(1)), int(damage_match.group(2)))
+                if item.damage is None:
+                    item.damage = DamageInfo()
+                min_dmg_raw = damage_match.group(1)
+                max_dmg_raw = damage_match.group(2)
+
+                item.damage.min = int(min_dmg_raw.translate(fix_damage_range_ocr))
+                item.damage.max = int(max_dmg_raw.translate(fix_damage_range_ocr))
                 continue
 
             # DPS parsing
-            dps_match = self.patterns['dps'].search(text)
-            if dps_match:
-                item.dps = float(dps_match.group(1))
+            dps_value = self.extract_dps(text)
+            if dps_value is not None:
+                if item.damage is None:
+                    item.damage = DamageInfo()
+                item.damage.damagePerSecond = dps_value
                 continue
             
             # Speed parsing
             speed_match = self.patterns['speed'].search(text)
             if speed_match:
-                item.speed = float(speed_match.group(1))
+                if item.damage is None:
+                    item.damage = DamageInfo()
+                item.damage.speed = float(speed_match.group(1))
                 continue
             
             # Level requirements
@@ -417,7 +501,7 @@ class GameItemOCRProcessor:
             for equip_stats_match in self.patterns['equip_stats'].finditer(text):
                 equip_effect_string = equip_stats_match.group(1)
                 key = to_camel_case(equip_effect_string)
-                item.equip_stats[key] = fix_glued_number(equip_stats_match.string.replace("Equip:", "").strip())
+                item.equip_stats[key] = fix_glued_number(equip_stats_match.string.replace("Equip:", "").replace("Equipe:", "").strip())
             
             # Slot
             slot_match = self.patterns['slot'].search(text)
@@ -433,9 +517,9 @@ class GameItemOCRProcessor:
                 continue
 
             # Binding
-            binding_match = self.patterns['binding'].search(text)
+            binding_match = self.extract_binding(text)
             if binding_match:
-                item.binding = binding_match.group(1) if binding_match.group(1) != "Soulbound" else "Binds when picked up"
+                item.binding = "Binds when picked up" if binding_match == "Soulbound" else binding_match
                 continue
             
             use_match = self.patterns['use_effect'].search(text)
@@ -474,7 +558,8 @@ class GameItemOCRProcessor:
         }
         
         if save_debug:
-            debug_path = f"debug_{Path(image_path).stem}.json"
+            prefix = "black_bkground" if self.config['preprocessing'].get('invert_colors', False) else "white_bkground"
+            debug_path = f"debug/{prefix}_{Path(image_path).stem}.json"
             with open(debug_path, 'w') as f:
                 json.dump(ItemStats.to_dynamodb_item(result["item_stats"]), f, indent=2)
             logger.info(f"Debug info saved to {debug_path}")

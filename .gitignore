@@ -1,0 +1,5 @@
+.venv/*
+*.pyc
+*.json
+temp_images/
+images
