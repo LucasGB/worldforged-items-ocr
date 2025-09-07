@@ -45,8 +45,7 @@ class FuzzyEquipStatsExtractor:
                 'haste rating', 'haste', 'hastereating', 'hasterating'
             ],
             'hitRating': [
-                'hit rating', 'hit chance', 'accuracy rating',
-                'hit rate', 'to hit', 'hit bonus'
+                'hit rating', 'hitrating', 'hitraeting',
             ],
             'parryRating': [
                 'parry rating', 'parry chance', 'parry',

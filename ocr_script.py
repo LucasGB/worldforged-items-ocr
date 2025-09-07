@@ -490,7 +490,7 @@ class GameItemOCRProcessor:
             
             # ID parsing
             item_id = self.extract_item_id(text)
-            if item_id is not None:
+            if item_id is not None and item.id is None:
                 item.id = int(item_id)
                 continue
 
