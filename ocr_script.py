@@ -12,6 +12,8 @@ import yaml
 from item_stats import ItemStats, DamageInfo
 from difflib import get_close_matches
 from rapidfuzz import fuzz, process
+from fuzzy_item_level_extractor import FuzzyItemLevelExtractor
+from fuzzy_equip_stats_extractor import FuzzyEquipStatsExtractor
 
 canonical_words = [
     "Main-Hand",
@@ -146,7 +148,7 @@ class GameItemOCRProcessor:
             
             # Item types and slots
             'slot': re.compile(r'\b(Main\s*[Hh]and|Off\s*[Hh]and|Two-Hand|Head|Neck|Shoulder|Back|Chest|Wrist|Hands|Waist|Legs|Feet|Finger|Trinket|Ranged)\b', re.IGNORECASE),
-            'slot_types': re.compile(r'\b([Cc]loth|[Ll]eather|[Mm]ail|[Pp]late|[Ss]word|[Aa]xe|[Mm]ace|[Dd]agger|[Ss]taff|[Bb]ow|[Gg]un|[Cc]rossbow|[Ww]and|[Ff]ist Weapon|[Pp]olearm|[Tt]hrown)|[Ss]hield\b', re.IGNORECASE),
+            'slot_types': re.compile(r'\b([Cc]loth|[Ll]eather|[Mm]ail|[Pp]late|[Ss]word|[Aa]xe|[Mm]ace|[Dd]agger|[Ss]taff|[Bb]ow|[Gg]un|[Cc]rossbow|[Ww]and|[Ff]ist Weapon|[Pp]olearm|[Tt]hrown)|[Ss]hield|[Ii]dol|[Tt]otem|[Ll]ibram|[Ss]igil\b', re.IGNORECASE),
 
             # Binding and rarity
             'binding': re.compile(r'\b(Binds when picked up|Binds when equipped|Binds to account|Soulbound|Account Bound)\b', re.IGNORECASE),
@@ -155,6 +157,8 @@ class GameItemOCRProcessor:
             # Effects (Equip, Use, Chance on hit, etc.)
             'use_effect': re.compile(r'^[Uu]se:\s*(.+)$'),
             'chance_effect': re.compile(r'(?:[Cc]hance\s*on\s*hit|[Cc]hance\s*on\s*[spell\s*]*cast)\s*:?(.+)', re.IGNORECASE),
+
+            'flavor_text': re.compile(r'(?:\")(.*)(?:\")'), 
 
             # Common OCR errors
             'number_fixes': [
@@ -209,7 +213,11 @@ class GameItemOCRProcessor:
             if fuzz.partial_ratio(kw, lower_text) > 80:
                 found += 1
 
-        if found >= 2:  # require at least 2 keywords matched
+        if found >= 3:  # require at least 2 keywords matched
+            if len(number_matches) == 2:
+                # If there are two numbers, assume the second is DPS
+                return float(f"{number_matches[0]}.{number_matches[1]}")
+
             return float(number_matches[0])  # assume the first number is DPS
         return None
 
@@ -264,7 +272,7 @@ class GameItemOCRProcessor:
         Returns the numeric ID as int if found, else None.
         """
         # Candidate patterns that may indicate an ID
-        ID_KEYWORDS = ["id", "itemid", "temid"]
+        ID_KEYWORDS = ["id", "itemid"]
         tokens = re.split(r'\s+', text.lower())
 
         for i, token in enumerate(tokens):
@@ -283,6 +291,7 @@ class GameItemOCRProcessor:
 
         return None
     
+    # Image preprocessing
     def preprocess_image(self, image_path: str) -> np.ndarray:
         """Apply preprocessing to improve OCR accuracy"""
         img = cv2.imread(image_path)
@@ -528,6 +537,13 @@ class GameItemOCRProcessor:
             if item_level_match:
                 item.item_level = int(item_level_match.group(1))
                 continue
+
+            # Item Level
+            FuzzyItemLevelExtractor_instance = FuzzyItemLevelExtractor()
+            fuzzy_level = FuzzyItemLevelExtractor_instance.extract_with_confidence(text)
+            if fuzzy_level[0] is not None and fuzzy_level[1] >= 0.80:
+                item.item_level = fuzzy_level[0]
+                continue
             
             # Primary stats
             for base_stats_match in self.patterns['base_stats'].finditer(text):
@@ -535,10 +551,12 @@ class GameItemOCRProcessor:
                 item.base_stats[stat.lower()] = int(value)
             
             # Equip stats
-            for equip_stats_match in self.patterns['equip_stats'].finditer(text):
-                equip_effect_string = equip_stats_match.group(1)
-                key = to_camel_case(equip_effect_string)
-                item.equip_stats[key] = fix_glued_number(equip_stats_match.string.replace("Equip:", "").replace("Equipe:", "").strip())
+            FuzzyEquipStatsExtractor_instance = FuzzyEquipStatsExtractor()
+            equip_stats_fuzzy_level = FuzzyEquipStatsExtractor_instance.extract_with_confidence(text)
+            if equip_stats_fuzzy_level[0] is not None and equip_stats_fuzzy_level[1] >= 0.90:
+                stat_name_key = equip_stats_fuzzy_level[0][0].stat_type
+                item.equip_stats[stat_name_key] = text
+                continue
             
             # Slot
             slot_match = self.patterns['slot'].search(text)
@@ -551,13 +569,15 @@ class GameItemOCRProcessor:
             if slot_types_match:
                 item.slot_type = slot_types_match.group(0)
 
-                # Ascension renders 'Thrown' as slot when slotype is 'Thrown'. Here we map it back to 'Ranged'.
-                ranged_weapons = [
-                    "Thrown", 'Wand' 'Ranged' 'Gun', 'Bow', 'Crossbow'
-                ]
+                # Ascension renders Ranged slot as it's own slotType name. If sloType is 'Thrown' the slot is shown as 'Thrown'. And 'Idol/Relic' will be shown as 'Idol/Relic'. Here we map it back to 'Ranged'.
+                relics = ["Idol", "Totem", "Libram", "Sigil"]
+                ranged_weapons = ["Thrown", 'Wand' 'Ranged' 'Gun', 'Bow', 'Crossbow']
 
                 if item.slot_type in ranged_weapons:
                     item.slot = "Ranged"
+                elif item.slot_type in relics:
+                    item.slot = "Relic"
+
                 continue
 
             # Binding
@@ -574,7 +594,11 @@ class GameItemOCRProcessor:
             if chance_match:
                 key = self.extract_chance_effects(chance_match.group(0))
                 key = to_camel_case(key) if key else "onChance"
-                item.equip_stats[key] = chance_match.group(0)
+                item.equip_stats[key] = chance_match.group(1)
+
+            flavor_match = self.patterns['flavor_text'].search(text)
+            if flavor_match:
+                item.flavor_text =flavor_match.group(1)
         
         return item
     
