@@ -1,5 +1,10 @@
 FROM public.ecr.aws/lambda/python:3.12
 
+# Set environment variables early
+ENV TMPDIR=/tmp
+ENV PADDLEX_CACHE_DIR=/tmp/paddlex_cache
+ENV HOME=/tmp
+
 # Install system dependencies
 RUN dnf install -y \
     gcc \
@@ -20,11 +25,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY *.py ${LAMBDA_TASK_ROOT}/
 COPY ocr_config.yaml ${LAMBDA_TASK_ROOT}/
 
-ENV TMPDIR=/tmp
-ENV PADDLEX_CACHE_DIR=/tmp/paddlex_cache
-
-# Pre-download PaddleOCR models to reduce cold start
+# Pre-download PaddleOCR models
 RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='en')"
 
-# Set the CMD to your handler
 CMD ["lambda_handler.lambda_handler"]

@@ -638,7 +638,7 @@ class GameItemOCRProcessor:
             logger.info(f"Debug info saved to {debug_path}")
         
         # Return item_stats
-        return result
+        return result["item_stats"]
     
     def batch_process(self, image_paths: List[str], output_path: str = "processed_items.json") -> List[Dict[str, Any]]:
         """Process multiple images in batch"""
@@ -672,10 +672,10 @@ class GameItemOCRProcessor:
         return results
 
 # Example usage
-if __name__ == "__main__":
-    # Initialize processor
-    processor = GameItemOCRProcessor()
+# if __name__ == "__main__":
+#     # Initialize processor
+#     processor = GameItemOCRProcessor()
     
-    # For batch processing (example)
-    image_files = list(Path("images/").glob("*.png"))
-    results = processor.batch_process([str(p) for p in image_files])
+#     # For batch processing (example)
+#     image_files = list(Path("images/").glob("*.png"))
+#     results = processor.batch_process([str(p) for p in image_files])
