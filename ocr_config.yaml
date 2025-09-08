@@ -2,14 +2,26 @@
 ocr_settings:
   use_textline_orientation: true
   lang: "en"
-  det_db_thresh: 0.3
-  det_db_box_thresh: 0.6
-  rec_batch_num: 6
-  # use_gpu: true  # Set to false if no GPU available
+  text_det_thresh: 0.3
+  text_det_box_thresh: 0.6
+  text_recognition_batch_size: 6
+
+  # Local
+  # text_detection_model_dir: "/home/guedes/ocr_models/PP-OCRv5_server_det"
+  # text_recognition_model_dir: "/home/guedes/ocr_models/PP-OCRv5_server_rec"
+  # doc_orientation_classify_model_dir: "/home/guedes/ocr_models/PP-LCNet_x1_0_doc_ori"
+  # textline_orientation_model_dir: "/home/guedes/ocr_models/PP-LCNet_x1_0_textline_ori"
+  # doc_unwarping_model_name: null
+  
+  # Lambda
+  text_detection_model_dir: "/opt/models/PP-OCRv5_server_det"
+  text_recognition_model_dir: "/opt/models/PP-OCRv5_server_rec"
+  doc_orientation_classify_model_dir: "/opt/models/PP-LCNet_x1_0_doc_ori"
+  textline_orientation_model_dir: "/opt/models/PP-LCNet_x1_0_textline_ori"
 
 preprocessing:
   resize_factor: 2.0  # Upscale images for better text recognition
-  gaussian_blur_kernel: 0  # Noise reduction (0 to disable)
+  gaussian_blur_kernel: 0  # Noise reduction (0 to disable) <-- 3
   adaptive_threshold_block_size: 11  # Must be odd
   adaptive_threshold_c: 2
   invert_colors: false  # Invert colors for better contrast
@@ -24,7 +36,7 @@ text_correction:
 item_parsing:
   min_name_length: 3
   max_name_length: 50
-  stat_confidence_threshold: 0.6  # Minimum confidence to accept stat parsing
+  stat_confidence_threshold: 0.8  # Minimum confidence to accept stat parsing
   
 # Performance settings
 performance:
@@ -47,8 +59,8 @@ output:
   include_confidence_scores: true
   include_bounding_boxes: false
 
-# Lambda-specific settings
-lambda:
-  model_cache_path: '/opt/paddlex_models'
-  temp_dir: '/tmp'
-  max_image_size_mb: 10
+# # Lambda-specific settings
+# lambda:
+#   model_cache_path: '/opt/paddlex_models'
+#   temp_dir: '/tmp'
+#   max_image_size_mb: 10
