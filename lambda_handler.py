@@ -9,9 +9,11 @@ from pathlib import Path
 # Import your main processor class
 from game_item_ocr_processor import GameItemOCRProcessor
 
+os.environ["TMPDIR"] = "/tmp"
+os.environ["PADDLEX_CACHE_DIR"] = "/tmp/paddlex_cache"
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-
 logger = logging.getLogger()
 
 def init_logger(log_local=False):
@@ -76,6 +78,8 @@ def lambda_handler(event, context):
         logger.info(event)
         logger.info(f"Processing event version: {event.get('version', 'unknown')}")
         logger.info(f"Request context: {event.get('requestContext', {}).get('http', {}).get('method', 'unknown')}")
+        
+        os.makedirs("/tmp/paddlex_cache", exist_ok=True)
         
         # Parse the event based on source
         image_path = None

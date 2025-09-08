@@ -62,12 +62,23 @@ def fix_glued_number(s: str) -> str:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def init_logger(log_local=False):
+    log_format = '%(asctime)s - %(levelname)s - %(message)s'
+    date_format = '%Y-%m-%d %H:%M:%S'
+
+    if log_local:
+        logging.basicConfig(level=logging.INFO, format=log_format, datefmt=date_format) # logger.info no terminal
+    else:
+        logger.setLevel(logging.INFO) # logger.info em AWS logs
+    return logger
+
 class GameItemOCRProcessor:
     """Production-grade OCR processor for game items"""
     
     def __init__(self, config_path: str = "ocr_config.yaml"):
         self.ocr = None
         self.config = self._load_config(config_path)
+        init_logger(False)
         self._initialize_ocr()
         self._compile_patterns()
         self._load_vocabularies()

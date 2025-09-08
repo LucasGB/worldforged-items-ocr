@@ -1,6 +1,5 @@
 FROM public.ecr.aws/lambda/python:3.12
 
-# Set environment variables early
 ENV TMPDIR=/tmp
 ENV PADDLEX_CACHE_DIR=/tmp/paddlex_cache
 ENV HOME=/tmp
@@ -25,7 +24,23 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY *.py ${LAMBDA_TASK_ROOT}/
 COPY ocr_config.yaml ${LAMBDA_TASK_ROOT}/
 
-# Pre-download PaddleOCR models
+# Create models directory and pre-download PaddleOCR models
+
+
+# Pre-download models by initializing PaddleOCR
 RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='en')"
 
+
+# RUN mkdir -p /tmp/paddlex_models
+# ENV PADDLEX_HOME=/tmp/paddlex_models
+# RUN python -c "\
+# import os; \
+# os.environ['PADDLEX_HOME'] = '/tmp/paddlex_models'; \
+# from paddleocr import PaddleOCR; \
+# print('Pre-downloading models...'); \
+# ocr = PaddleOCR(use_angle_cls=True, lang='en'); \
+# print('Models downloaded successfully'); \
+# "
+
+# Set the CMD to your handler
 CMD ["lambda_handler.lambda_handler"]

@@ -46,3 +46,9 @@ output:
   output_format: "json"  # json, csv, both
   include_confidence_scores: true
   include_bounding_boxes: false
+
+# Lambda-specific settings
+lambda:
+  model_cache_path: '/opt/paddlex_models'
+  temp_dir: '/tmp'
+  max_image_size_mb: 10
