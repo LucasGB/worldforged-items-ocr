@@ -84,6 +84,17 @@ def lambda_handler(event, context):
         # Parse the event based on source
         image_path = None
         is_api_gateway = False
+
+        # if event["requestContext"]["http"]["method"] == "OPTIONS":
+        #     return {
+        #         "statusCode": 200,
+        #         "headers": {
+        #             "Access-Control-Allow-Origin": "*",
+        #             "Access-Control-Allow-Methods": "OPTIONS,POST",
+        #             "Access-Control-Allow-Headers": "Content-Type"
+        #         },
+        #         "body": ""
+        #     }
         
         if event.get('version') == '2.0' and 'requestContext' in event:
             # API Gateway v2.0 (HTTP API or Lambda Function URL)
@@ -158,6 +169,7 @@ def lambda_handler(event, context):
 
 def handle_api_gateway_v2_request(event: Dict[str, Any]) -> str:
     """Handle API Gateway v2.0 request (HTTP API or Lambda Function URL)"""
+    logger.info("Handle API Gateway v2.0 request (REST API)")
     
     # Handle CORS preflight
     if event.get('requestContext', {}).get('http', {}).get('method') == 'OPTIONS':
@@ -238,7 +250,7 @@ def handle_api_gateway_v2_request(event: Dict[str, Any]) -> str:
 
 def handle_api_gateway_v1_request(event: Dict[str, Any]) -> str:
     """Handle API Gateway v1.0 request (REST API)"""
-    
+    logger.info("Handle API Gateway v1.0 request (REST API)")
     # Handle CORS preflight
     if event.get('httpMethod') == 'OPTIONS':
         return {
