@@ -114,12 +114,6 @@ class GameItemOCRProcessor:
         try:
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
-            # Merge with defaults
-            for key, value in default_config.items():
-                if key not in config:
-                    config[key] = value
-                elif isinstance(value, dict):
-                    config[key] = {**value, **config[key]}
             return config
         except FileNotFoundError:
             logger.warning(f"Config file {config_path} not found, using defaults")
@@ -305,6 +299,11 @@ class GameItemOCRProcessor:
     # Image preprocessing
     def preprocess_image(self, image_path: str) -> np.ndarray:
         """Apply preprocessing to improve OCR accuracy"""
+        logger.info("Preprocssing image...")
+
+        if "/tmp" not in image_path:
+            image_path = f"/tmp/{image_path}"
+
         img = cv2.imread(image_path)
         if img is None:
             raise ValueError(f"Could not load image: {image_path}")
@@ -334,6 +333,7 @@ class GameItemOCRProcessor:
         if self.config['preprocessing'].get('invert_colors', False):
             binary = cv2.bitwise_not(binary)
         
+        logger.info("Finished preprocssing image...")
         return binary
     
     def correct_ocr_text(self, text: str, confidence: float = 1.0) -> str:
@@ -402,7 +402,6 @@ class GameItemOCRProcessor:
                     corrected_words.append(corrected_word)
                 else:
                     corrected_words.append(word)
-        
         return ' '.join(corrected_words)
     
     def _find_best_vocabulary_match(self, word: str) -> Optional[str]:
@@ -440,15 +439,19 @@ class GameItemOCRProcessor:
     
     def extract_text_with_confidence(self, image_path: str, use_preprocessing: bool = True) -> List[Tuple[str, float]]:
         """Extract text with confidence scores"""
+        logger.info("Extract text with confidence scores...")
         try:
             if use_preprocessing:
                 # Save preprocessed image temporarily
                 processed_img = self.preprocess_image(image_path)
                 prefix = "black_bkground" if self.config['preprocessing'].get('invert_colors', False) else "white_bkground"
                 temp_path = f"{prefix}_temp_processed_{Path(image_path).name}"
+                if "/tmp" not in temp_path:
+                    temp_path = f"/tmp/{temp_path}"
+
                 cv2.imwrite(temp_path, processed_img)
                 result = self.ocr.predict(temp_path)
-                # Path(temp_path).unlink()  # Clean up
+                Path(temp_path).unlink()  # Clean up
             else:
                 result = self.ocr.predict(image_path)
             
@@ -470,6 +473,7 @@ class GameItemOCRProcessor:
                 corrected_text = self.correct_ocr_text(text, confidence)
                 corrected_texts.append((corrected_text, confidence))
             
+            logger.info("Finish extract text with confidence scores...")
             return corrected_texts
             
         except Exception as e:
@@ -478,6 +482,7 @@ class GameItemOCRProcessor:
     
     def parse_item_stats(self, text_data: List[Tuple[str, float]]) -> ItemStats:
         """Parse extracted text into structured item statistics"""
+        logger.info("Parse extracted text into structured item statistics...")
         item = ItemStats()
         text_lines = [text for text, _ in text_data]
         
@@ -610,7 +615,7 @@ class GameItemOCRProcessor:
             flavor_match = self.patterns['flavor_text'].search(text)
             if flavor_match:
                 item.flavor_text =flavor_match.group(1)
-        
+        logger.info("Finish parse extracted text into structured item statistics...")
         return item
     
     def process_item_image(self, image_path: str, save_debug: bool = False) -> Dict[str, Any]:
@@ -639,6 +644,7 @@ class GameItemOCRProcessor:
         }
 
         # Store result in S3
+        # Use item ID as file name and set bucket versioning on to audit
 
         
         if save_debug:
