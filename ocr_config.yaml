@@ -7,15 +7,35 @@ ocr_settings:
   text_recognition_batch_size: 6
 
   # Local
+  # We use mobile version as it cuts load time in half without sacrificing much accuracy
+  # text_detection_model_name: "PP-OCRv5_mobile_det"
+  # text_recognition_model_name: "PP-OCRv5_mobile_rec"
+  # text_detection_model_dir: "/home/guedes/ocr_models/PP-OCRv5_mobile_det"
+  # text_recognition_model_dir: "/home/guedes/ocr_models/PP-OCRv5_mobile_rec"
+
+  # Worst load time results, but more accurate
+  # text_detection_model_name: "PP-OCRv5_server_det"
+  # text_recognition_model_name: "PP-OCRv5_server_rec"
   # text_detection_model_dir: "/home/guedes/ocr_models/PP-OCRv5_server_det"
   # text_recognition_model_dir: "/home/guedes/ocr_models/PP-OCRv5_server_rec"
+  
   # doc_orientation_classify_model_dir: "/home/guedes/ocr_models/PP-LCNet_x1_0_doc_ori"
   # textline_orientation_model_dir: "/home/guedes/ocr_models/PP-LCNet_x1_0_textline_ori"
   # doc_unwarping_model_name: null
   
   # Lambda
-  text_detection_model_dir: "/opt/models/PP-OCRv5_server_det"
-  text_recognition_model_dir: "/opt/models/PP-OCRv5_server_rec"
+  # We use mobile version as it cuts load time in half without sacrificing much accuracy
+  text_detection_model_name: "PP-OCRv5_mobile_det"
+  text_recognition_model_name: "PP-OCRv5_mobile_rec"
+  text_detection_model_dir: "/opt/models/PP-OCRv5_mobile_det"
+  text_recognition_model_dir: "/opt/models/PP-OCRv5_mobile_rec"
+
+  # Worst load time results, but more accurate
+  # text_detection_model_name: "PP-OCRv5_server_det"
+  # text_recognition_model_name: "PP-OCRv5_server_rec"
+  # text_detection_model_dir: "/opt/models/PP-OCRv5_server_det"
+  # text_recognition_model_dir: "/opt/models/PP-OCRv5_server_rec"
+
   doc_orientation_classify_model_dir: "/opt/models/PP-LCNet_x1_0_doc_ori"
   textline_orientation_model_dir: "/opt/models/PP-LCNet_x1_0_textline_ori"
 
