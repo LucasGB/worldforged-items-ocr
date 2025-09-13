@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY *.py ${LAMBDA_TASK_ROOT}/
-COPY ocr_config.yaml ${LAMBDA_TASK_ROOT}/
+COPY ocr_config_prod.yaml ${LAMBDA_TASK_ROOT}/ocr_config.yaml
 
 # Copy pre-downloaded models from your local project
 RUN mkdir -p /opt/models 

@@ -1,4 +1,4 @@
-log_local: true
+log_local: false
 
 # OCR Configuration for Game Item Processing
 ocr_settings:
@@ -8,24 +8,23 @@ ocr_settings:
   text_det_box_thresh: 0.6
   text_recognition_batch_size: 6
 
-  doc_orientation_classify_model_dir: "/home/guedes/ocr_models/PP-LCNet_x1_0_doc_ori"
-  textline_orientation_model_dir: "/home/guedes/ocr_models/PP-LCNet_x1_0_textline_ori"
-  doc_unwarping_model_dir: "/home/guedes/ocr_models/UVDoc"
+  doc_orientation_classify_model_dir: "/opt/models/PP-LCNet_x1_0_doc_ori"
+  textline_orientation_model_dir: "/opt/models/PP-LCNet_x1_0_textline_ori"
+  doc_unwarping_model_dir: "/opt/models/UVDoc"
   doc_unwarping_model_name: "UVDoc"
-  # doc_unwarping_model_name: null
 
-  # Local
+  # Lambda
   # We use mobile version as it cuts load time in half without sacrificing much accuracy
   text_detection_model_name: "PP-OCRv5_mobile_det"
   text_recognition_model_name: "PP-OCRv5_mobile_rec"
-  text_detection_model_dir: "/home/guedes/ocr_models/PP-OCRv5_mobile_det"
-  text_recognition_model_dir: "/home/guedes/ocr_models/PP-OCRv5_mobile_rec"
+  text_detection_model_dir: "/opt/models/PP-OCRv5_mobile_det"
+  text_recognition_model_dir: "/opt/models/PP-OCRv5_mobile_rec"
 
   # Worst load time results, but more accurate
   # text_detection_model_name: "PP-OCRv5_server_det"
   # text_recognition_model_name: "PP-OCRv5_server_rec"
-  # text_detection_model_dir: "/home/guedes/ocr_models/PP-OCRv5_server_det"
-  # text_recognition_model_dir: "/home/guedes/ocr_models/PP-OCRv5_server_rec"
+  # text_detection_model_dir: "/opt/models/PP-OCRv5_server_det"
+  # text_recognition_model_dir: "/opt/models/PP-OCRv5_server_rec"
 
 preprocessing:
   resize_factor: 2.0  # Upscale images for better text recognition

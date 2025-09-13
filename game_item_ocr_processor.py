@@ -32,6 +32,8 @@ item_slots = [
     "Finger", "Trinket", "Ranged", "Main-Hand", "Off-Hand", "One-Hand", "Two-Hand"
 ]
 
+CONFIG_FILE = "ocr_config.yaml"
+
 def map_by_similarity(s: str, words=canonical_words, cutoff=0.7) -> str:
     """
     Map input string `s` to the closest word in `words` by similarity.
@@ -59,10 +61,10 @@ def fix_glued_number(s: str) -> str:
 
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def init_logger(log_local=False):
+def init_logger(log_local):
     log_format = '%(asctime)s - %(levelname)s - %(message)s'
     date_format = '%Y-%m-%d %H:%M:%S'
 
@@ -75,10 +77,10 @@ def init_logger(log_local=False):
 class GameItemOCRProcessor:
     """Production-grade OCR processor for game items"""
     
-    def __init__(self, config_path: str = "ocr_config.yaml"):
+    def __init__(self, config_path: str = CONFIG_FILE):
         self.ocr = None
         self.config = self._load_config(config_path)
-        init_logger(False)
+        init_logger(self.config['log_local'])
         self._initialize_ocr()
         self._compile_patterns()
         self._load_vocabularies()
@@ -138,7 +140,8 @@ class GameItemOCRProcessor:
             'dps': re.compile(r'\(?([\d.]+)\s*damage\s*per\s*second\)?', re.IGNORECASE),
             
             # Speed and timing
-            'speed': re.compile(r'[Ss]peed\s*([\d.]+)'),
+            'speed': re.compile(r'\b[Ss]peed\s*[:\-]?\s*([0-9O.,]{1,4})'),
+
             'cooldown': re.compile(r'(\d+)\s+sec\s+cooldown', re.IGNORECASE),
             
             # Level requirements
@@ -474,6 +477,8 @@ class GameItemOCRProcessor:
                 corrected_texts.append((corrected_text, confidence))
             
             logger.info("Finish extract text with confidence scores...")
+            logger.info(corrected_texts)
+            # print(corrected_texts)
             return corrected_texts
             
         except Exception as e:
@@ -537,10 +542,26 @@ class GameItemOCRProcessor:
             # Speed parsing
             speed_match = self.patterns['speed'].search(text)
             if speed_match:
-                if item.damage is None:
-                    item.damage = DamageInfo()
-                item.damage.speed = float(speed_match.group(1))
-                continue
+                raw_value = speed_match.group(1)
+
+                cleaned = (
+                    raw_value.replace("O", "0")
+                            .replace(",", ".")
+                            .strip()
+                )
+
+                try:
+                    candidate_speed = float(cleaned)
+                    if candidate_speed >= 100:
+                        candidate_speed /= 100
+                    if 0.00 <= candidate_speed <= 4.00:
+                        if item.damage is None:
+                            item.damage = DamageInfo()
+                        item.damage.speed = float(f"{candidate_speed:.2f}")
+                    else:
+                        logger.warning(f"Ignored out-of-range speed value: {raw_value} -> {candidate_speed}")
+                except ValueError:
+                    logger.warning(f"Could not parse speed value: {raw_value}")
             
             # Level requirements
             level_req_match = self.patterns['level_req'].search(text)
